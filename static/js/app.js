@@ -235,6 +235,9 @@ function renderMessages(messages) {
             <p class="text-muted">Type a message to get started!</p>
         `;
         messagesContainer.appendChild(emptyStateMessage);
+        
+        // Make sure chat input is visible for empty conversations
+        document.getElementById('chatInputContainer').classList.remove('d-none');
         return;
     }
     
@@ -251,23 +254,102 @@ function addMessageToUI(message) {
     messageElement.className = `message ${message.role}`;
     messageElement.dataset.id = message.id;
     
-    let messageContent = '';
-    message.parts.forEach(part => {
-        if (part.type === 'text') {
-            messageContent += part.content;
-        } else if (part.type === 'data') {
-            messageContent += `<pre>${JSON.stringify(part.content, null, 2)}</pre>`;
-        } else if (part.type === 'file' && part.mime_type.startsWith('image/')) {
-            messageContent += `<img src="data:${part.mime_type};base64,${part.content}" class="img-fluid" />`;
+    // Check if the message is a raw JSON response string
+    if (typeof message === 'string') {
+        try {
+            // Try to parse it as JSON
+            const parsedMessage = JSON.parse(message);
+            if (parsedMessage.artifacts && Array.isArray(parsedMessage.artifacts)) {
+                // Handle A2A protocol format
+                let content = '';
+                parsedMessage.artifacts.forEach(artifact => {
+                    if (artifact.parts && Array.isArray(artifact.parts)) {
+                        artifact.parts.forEach(part => {
+                            if (part.type === 'text') {
+                                content += part.text;
+                            } else if (part.text) {
+                                content += part.text;
+                            }
+                        });
+                    }
+                });
+                
+                if (content) {
+                    messageElement.textContent = content;
+                } else {
+                    // Fallback: just show formatted JSON
+                    messageElement.innerHTML = `<pre class="text-wrap">${JSON.stringify(parsedMessage, null, 2)}</pre>`;
+                }
+                
+                // Add to the UI
+                messagesContainer.appendChild(messageElement);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                return;
+            }
+        } catch (e) {
+            // Not JSON, continue with normal processing
+            console.log('Not a valid JSON string:', e);
         }
-    });
+    }
+    
+    // Handle A2A protocol format directly
+    if (message.artifacts && Array.isArray(message.artifacts)) {
+        let messageContent = '';
+        message.artifacts.forEach(artifact => {
+            if (artifact.parts && Array.isArray(artifact.parts)) {
+                artifact.parts.forEach(part => {
+                    if (part.type === 'text') {
+                        messageContent += part.text;
+                    } else if (part.text) {
+                        messageContent += part.text;
+                    }
+                });
+            }
+        });
+        
+        if (messageContent) {
+            messageElement.innerHTML = messageContent;
+            
+            // Add timestamp
+            if (message.status && message.status.timestamp) {
+                const timestampElement = document.createElement('div');
+                timestampElement.className = 'message-time';
+                const date = new Date(message.status.timestamp);
+                timestampElement.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                messageElement.appendChild(timestampElement);
+            }
+            
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return;
+        }
+    }
+    
+    // Standard message format processing
+    let messageContent = '';
+    
+    // Handle message.parts if it exists
+    if (message.parts && Array.isArray(message.parts)) {
+        message.parts.forEach(part => {
+            if (part.type === 'text') {
+                messageContent += part.content || part.text || '';
+            } else if (part.type === 'data') {
+                messageContent += `<pre class="text-wrap">${JSON.stringify(part.content, null, 2)}</pre>`;
+            } else if (part.type === 'file' && part.mime_type && part.mime_type.startsWith('image/')) {
+                messageContent += `<img src="data:${part.mime_type};base64,${part.content}" class="img-fluid" />`;
+            }
+        });
+    } else {
+        // Fallback for simple content
+        messageContent = message.content || JSON.stringify(message, null, 2);
+    }
     
     messageElement.innerHTML = messageContent;
     
     // Add timestamp
     const timestampElement = document.createElement('div');
     timestampElement.className = 'message-time';
-    const date = new Date(message.created_at * 1000);
+    const date = new Date(message.created_at * 1000 || Date.now());
     timestampElement.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     messageElement.appendChild(timestampElement);
     
@@ -312,6 +394,9 @@ function selectConversation(conversationId) {
     if (conversation) {
         currentConversationTitle.textContent = conversation.name || `Conversation ${conversation.id.substring(0, 8)}`;
     }
+    
+    // Show chat input container
+    document.getElementById('chatInputContainer').classList.remove('d-none');
     
     // Enable input and send button
     messageInput.disabled = false;
@@ -391,6 +476,18 @@ async function fetchAgentDataForPreview(url) {
         saveAgentBtn.disabled = true;
         saveAgentBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Loading...';
         
+        // Show connection test results for better feedback
+        const connectionResults = document.getElementById('connectionTestResults');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const diagnosticSteps = document.getElementById('diagnosticSteps');
+        
+        connectionResults.classList.remove('d-none');
+        connectionStatus.className = 'alert alert-info';
+        connectionStatus.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Testing connection...';
+        diagnosticSteps.innerHTML = '<div class="mb-2"><i class="fas fa-info-circle text-info me-1"></i> The system will automatically try these URLs in order:</div>' +
+            `<div class="ms-3 mb-1">1. ${url}/.well-known/agent.json (A2A standard location)</div>` +
+            `<div class="ms-3 mb-1">2. ${url} (Direct URL)</div>`;
+        
         // Use the backend API to fetch agent data (this avoids CORS issues)
         const response = await fetch('/api/debug/test-agent-connection', {
             method: 'POST',
@@ -407,19 +504,33 @@ async function fetchAgentDataForPreview(url) {
         saveAgentBtn.disabled = false;
         saveAgentBtn.innerHTML = 'Add Agent';
         
-        if (!data.success) {
+        // Update the connection status based on the result
+        if (data.success) {
+            connectionStatus.className = 'alert alert-success';
+            connectionStatus.innerHTML = `<i class="fas fa-check-circle me-2"></i> Connection successful! Found agent: <strong>${data.agent_data.name}</strong>`;
+            
+            // Update diagnosticSteps with the detailed steps from the server
+            if (data.steps && data.steps.length > 0) {
+                diagnosticSteps.innerHTML = '';
+                data.steps.forEach(step => {
+                    const statusIcon = getStatusIcon(step.status);
+                    diagnosticSteps.innerHTML += `<div class="mb-2">
+                        <span class="fw-bold">${step.step}:</span> ${statusIcon} ${step.message}
+                    </div>`;
+                });
+            }
+            
+            // Close the add agent modal after a brief delay to show success
+            setTimeout(() => {
+                const addAgentModal = bootstrap.Modal.getInstance(document.getElementById('addAgentModal'));
+                addAgentModal.hide();
+                
+                // Show agent preview
+                showAgentPreview(data.agent_data);
+            }, 1000);
+        } else {
             throw new Error(data.error || 'Failed to fetch agent data');
         }
-        
-        // Use the agent data returned from the backend test
-        const agentData = data.agent_data;
-        
-        // Close the add agent modal
-        const addAgentModal = bootstrap.Modal.getInstance(document.getElementById('addAgentModal'));
-        addAgentModal.hide();
-        
-        // Show agent preview
-        showAgentPreview(agentData);
     } catch (error) {
         console.error('Error fetching agent data:', error);
         
@@ -428,13 +539,22 @@ async function fetchAgentDataForPreview(url) {
         saveAgentBtn.disabled = false;
         saveAgentBtn.innerHTML = 'Add Agent';
         
+        // Update connection status to show error
+        const connectionResults = document.getElementById('connectionTestResults');
+        const connectionStatus = document.getElementById('connectionStatus');
+        
+        connectionResults.classList.remove('d-none');
+        connectionStatus.className = 'alert alert-danger';
+        connectionStatus.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i> Connection failed: ${error.message}`;
+        
         // Show detailed error message
         let errorMessage = `Error fetching agent data: ${error.message}`;
         if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
             errorMessage += '\n\nPossible reasons:\n- The agent server is not running\n- The URL is incorrect\n- Network connectivity issues\n\nTry checking if the agent server is accessible.';
         }
         
-        alert(errorMessage);
+        // Don't alert, let the UI show the error
+        // alert(errorMessage);
     }
 }
 
@@ -560,8 +680,28 @@ function connectWebSocket() {
         // Remove typing indicator
         removeTypingIndicator();
         
-        // Add received message
-        addMessageToUI(message);
+        console.log('Received message:', message);
+        
+        // Check if message is a string (raw JSON)
+        if (typeof message === 'string') {
+            try {
+                // Try parsing as JSON
+                const parsedMessage = JSON.parse(message);
+                // Handle it as a message with the parsed object
+                addMessageToUI(parsedMessage);
+            } catch (e) {
+                // If not valid JSON, just display as text
+                addMessageToUI({
+                    id: Date.now().toString(),
+                    role: 'assistant',
+                    parts: [{ type: 'text', content: message }],
+                    created_at: Date.now() / 1000
+                });
+            }
+        } else {
+            // Add received message
+            addMessageToUI(message);
+        }
     });
     
     socket.on('disconnect', () => {

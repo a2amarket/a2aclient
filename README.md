@@ -1,10 +1,11 @@
-# AI Chat Application
+# A2A Client
 
-A Flask-based chat application that allows users to communicate with AI agents, similar to the demo UI in the A2A project.
+A Flask-based client application that allows users to communicate with AI agents using the A2A protocol.
+
+![General Overview](images/general.png)
 
 ## Features
 
-- Chat with AI agents powered by Google's Gemini models
 - Create multiple conversations
 - Add custom AI agents
 - Modern, responsive UI
@@ -15,7 +16,6 @@ A Flask-based chat application that allows users to communicate with AI agents, 
 ### Prerequisites
 
 - Python 3.8+
-- Google API Key for Gemini models
 
 ### Installation
 
@@ -59,16 +59,14 @@ Click the "New Chat" button in the sidebar to create a new conversation.
 
 1. Click "Add Agent" in the sidebar
 2. Choose "Custom Agent..." from the dropdown
-3. Fill in the agent details:
-   - Agent ID: A unique identifier
-   - Agent Name: Display name
-   - Description: (Optional)
-   - Model Name: The name of the model (e.g., "gemini-pro")
-   - Capabilities: Comma-separated list of capabilities
+3. Fill in the agent url
+   ![Adding agent URL](images/add_agent1.png)
+4. Press Add agent
+   ![Agent added confirmation](images/add_agent2.png)
 
-## Architecture
+## Tested With
 
-- Flask web server
-- Flask-SocketIO for real-time communication
-- Google Generative AI Python SDK for model interaction
-- Bootstrap 5 for responsive design
+This A2A client has been successfully tested with Google's LangGraph Currency Agent sample:
+- [LangGraph Currency Agent with A2A Protocol](https://github.com/google/A2A/blob/main/samples/python/agents/langgraph/README.md)
+
+The above agent provides currency conversion functionality and demonstrates the A2A protocol's capabilities for multi-turn conversations and streaming responses.

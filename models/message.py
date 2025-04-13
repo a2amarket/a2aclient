@@ -31,6 +31,7 @@ class Message(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     conversation_id: Optional[str] = None
+    content: Optional[Any] = None  # Used for raw A2A protocol responses
     
     def add_text(self, text: str):
         """Add a text part to the message."""
@@ -46,7 +47,7 @@ class Message(BaseModel):
     
     def dict(self, **kwargs):
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "id": self.id,
             "role": self.role,
             "parts": [part.dict() for part in self.parts],
@@ -54,6 +55,12 @@ class Message(BaseModel):
             "created_at": self.created_at,
             "conversation_id": self.conversation_id
         }
+        
+        # Include content if present (for raw A2A responses)
+        if self.content is not None:
+            result["content"] = self.content
+            
+        return result
         
     def model_dump(self, **kwargs):
         """Added for Pydantic v2 compatibility."""

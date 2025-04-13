@@ -1,16 +1,12 @@
 import os
 from flask import Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO, join_room
-from dotenv import load_dotenv
 from services.agent_manager import AgentManager
 from services.conversation_manager import ConversationManager
-
-# Load environment variables
-load_dotenv()
+import json
 
 # Initialize Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Initialize managers
@@ -65,7 +61,13 @@ def messages(conversation_id):
             conversation_manager.add_message_to_conversation(response)
             
             # Emit the response via WebSocket
-            socketio.emit('message', response.model_dump(), room=conversation_id)
+            # Convert to JSON string if it's an A2A protocol response
+            if hasattr(response, 'metadata') and response.metadata.get('is_a2a_raw_response'):
+                # Send the raw response for client-side processing
+                socketio.emit('message', json.dumps(response.content), room=conversation_id)
+            else:
+                # Send the normal message object
+                socketio.emit('message', response.model_dump(), room=conversation_id)
             
             return jsonify(response.model_dump())
         except Exception as e:
@@ -345,6 +347,6 @@ def on_disconnect():
     print("Client disconnected")
 
 if __name__ == '__main__':
-    print("Starting AI Chat Application with A2A Protocol Support")
+    print("Starting A2A Client Application")
     print(f"Number of agents available: {len(agent_manager.list_agents())}")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000) 

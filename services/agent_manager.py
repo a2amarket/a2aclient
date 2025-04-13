@@ -251,8 +251,29 @@ class AgentManager:
                     }
                 )
                 
-                # Extract content from the task status
-                if "status" in task_result and "message" in task_result["status"]:
+                # Check for artifacts format (A2A protocol v2)
+                if "artifacts" in task_result and isinstance(task_result["artifacts"], list):
+                    try:
+                        for artifact in task_result["artifacts"]:
+                            if "parts" in artifact and isinstance(artifact["parts"], list):
+                                for part in artifact["parts"]:
+                                    if part.get("type") == "text" and "text" in part:
+                                        response_message.add_text(part["text"])
+                                    elif part.get("type") == "data":
+                                        response_message.add_data(part.get("data", {}))
+                                    elif part.get("type") == "file" and "file" in part:
+                                        file_data = part["file"]
+                                        response_message.add_file(
+                                            file=file_data.get("bytes", ""),
+                                            mime_type=file_data.get("mimeType", "application/octet-stream")
+                                        )
+                    except Exception as e:
+                        print(f"Error parsing artifacts: {str(e)}")
+                        # If we fail to properly parse artifacts, return the raw JSON
+                        response_message.add_text(json.dumps(task_result))
+                
+                # Original format - Extract content from the task status
+                elif "status" in task_result and "message" in task_result["status"]:
                     agent_message = task_result["status"]["message"]
                     
                     if "parts" in agent_message:
@@ -269,7 +290,23 @@ class AgentManager:
                                 )
                 else:
                     # Fallback if we can't find the message in the expected structure
-                    response_message.add_text(json.dumps(task_result))
+                    # Check if it looks like an A2A protocol response
+                    if ("artifacts" in task_result or "sessionId" in task_result) and task_result.get("status", {}).get("state") in ["completed", "failed"]:
+                        # It's likely an A2A protocol response, keep it intact
+                        response_message = Message(
+                            role="assistant",
+                            conversation_id=message.conversation_id,
+                            metadata={
+                                "agent_id": agent_id,
+                                "task_id": task_id,
+                                "session_id": task_result.get("sessionId", session_id),
+                                "is_a2a_raw_response": True
+                            }
+                        )
+                        response_message.content = task_result
+                    else:
+                        # Just pass the raw JSON to the client for processing
+                        response_message.add_text(json.dumps(task_result))
                 
                 return response_message
             else:
